@@ -1,0 +1,448 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Air Drum — Protótipo</title>
+<style>
+  :root {
+    --bg: #16130f;
+    --panel: #201b15;
+    --line: #3a3226;
+    --ember: #e8703a;
+    --ember-dim: #7a3a1f;
+    --text: #f0e6d8;
+    --text-dim: #9a8f7c;
+    --kick: #e8703a;
+    --snare: #4fb8a8;
+    --hihat: #d9b64f;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Courier New', ui-monospace, monospace;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    min-height: 100vh;
+    padding: 24px 16px 60px;
+  }
+  h1 {
+    font-size: 1.4rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    margin: 0 0 4px;
+  }
+  .subtitle {
+    color: var(--text-dim);
+    font-size: 0.85rem;
+    margin: 0 0 20px;
+    text-align: center;
+    max-width: 480px;
+    line-height: 1.5;
+  }
+  .stage {
+    position: relative;
+    width: 100%;
+    max-width: 640px;
+    aspect-ratio: 4 / 3;
+    background: #0b0906;
+    border: 1px solid var(--line);
+    overflow: hidden;
+  }
+  video, canvas {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+  video { transform: scaleX(-1); opacity: 0; }
+  #view { transform: scaleX(-1); }
+  #overlay { pointer-events: none; }
+
+  .zone-label {
+    position: absolute;
+    font-size: 0.7rem;
+    letter-spacing: 0.05em;
+    color: var(--text-dim);
+    background: rgba(11,9,6,0.7);
+    padding: 2px 6px;
+    pointer-events: none;
+  }
+
+  .controls {
+    width: 100%;
+    max-width: 640px;
+    margin-top: 16px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    justify-content: center;
+  }
+  button {
+    font-family: inherit;
+    font-size: 0.85rem;
+    padding: 10px 18px;
+    background: var(--panel);
+    color: var(--text);
+    border: 1px solid var(--line);
+    cursor: pointer;
+    letter-spacing: 0.02em;
+  }
+  button:hover { border-color: var(--ember-dim); }
+  button.primary {
+    background: var(--ember);
+    color: #16130f;
+    border-color: var(--ember);
+    font-weight: 700;
+  }
+  button.primary:hover { background: #f08556; }
+  button:disabled { opacity: 0.4; cursor: default; }
+
+  .panel {
+    width: 100%;
+    max-width: 640px;
+    margin-top: 20px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    padding: 16px 18px;
+  }
+  .panel h2 {
+    font-size: 0.75rem;
+    letter-spacing: 0.08em;
+    color: var(--text-dim);
+    margin: 0 0 12px;
+    font-weight: 400;
+  }
+  .row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 10px;
+  }
+  .row label {
+    flex: 0 0 130px;
+    font-size: 0.8rem;
+    color: var(--text-dim);
+  }
+  .row input[type=range] {
+    flex: 1;
+    accent-color: var(--ember);
+  }
+  .row .val {
+    flex: 0 0 40px;
+    text-align: right;
+    font-size: 0.8rem;
+    color: var(--ember);
+  }
+  #status {
+    font-size: 0.78rem;
+    color: var(--text-dim);
+    margin-top: 10px;
+    min-height: 1.2em;
+  }
+  .meter-row {
+    display: flex;
+    gap: 8px;
+    margin-top: 14px;
+  }
+  .meter {
+    flex: 1;
+    height: 6px;
+    background: #0b0906;
+    border: 1px solid var(--line);
+    position: relative;
+    overflow: hidden;
+  }
+  .meter .fill {
+    position: absolute;
+    left: 0; top: 0; bottom: 0;
+    width: 0%;
+    background: var(--text-dim);
+    transition: width 0.05s linear;
+  }
+  .meter-label {
+    font-size: 0.65rem;
+    color: var(--text-dim);
+    text-align: center;
+    margin-top: 3px;
+  }
+</style>
+</head>
+<body>
+
+<h1>AIR DRUM — protótipo</h1>
+<p class="subtitle">
+  Detecta movimento em três zonas da câmera e toca um som de bateria sintetizado
+  (sem arquivos de áudio, sem hardware). Base de código para evoluir depois com
+  rastreamento de mão de verdade (MediaPipe) se quiser mais precisão.
+</p>
+
+<div class="stage">
+  <video id="cam" autoplay playsinline muted></video>
+  <canvas id="view"></canvas>
+  <canvas id="overlay"></canvas>
+</div>
+
+<div class="controls">
+  <button id="startBtn" class="primary">Ativar câmera</button>
+  <button id="calBtn" disabled>Recalibrar fundo</button>
+</div>
+
+<div class="panel">
+  <h2>SENSIBILIDADE</h2>
+  <div class="row">
+    <label for="thresh">Limiar de batida</label>
+    <input type="range" id="thresh" min="10" max="80" value="35">
+    <span class="val" id="threshVal">35</span>
+  </div>
+  <div class="row">
+    <label for="cooldown">Cooldown (ms)</label>
+    <input type="range" id="cooldown" min="80" max="500" value="180" step="10">
+    <span class="val" id="cooldownVal">180</span>
+  </div>
+  <div class="row">
+    <label for="vol">Volume</label>
+    <input type="range" id="vol" min="0" max="100" value="70">
+    <span class="val" id="volVal">70</span>
+  </div>
+  <div id="status">Aguardando câmera…</div>
+  <div class="meter-row">
+    <div><div class="meter"><div class="fill" id="m0"></div></div><div class="meter-label">CHIMBAL (esq.)</div></div>
+    <div><div class="meter"><div class="fill" id="m1"></div></div><div class="meter-label">BUMBO (centro)</div></div>
+    <div><div class="meter"><div class="fill" id="m2"></div></div><div class="meter-label">CAIXA (dir.)</div></div>
+  </div>
+</div>
+
+<script>
+(function () {
+  const camVideo = document.getElementById('cam');
+  const viewCanvas = document.getElementById('view');
+  const overlayCanvas = document.getElementById('overlay');
+  const startBtn = document.getElementById('startBtn');
+  const calBtn = document.getElementById('calBtn');
+  const statusEl = document.getElementById('status');
+
+  const threshSlider = document.getElementById('thresh');
+  const cooldownSlider = document.getElementById('cooldown');
+  const volSlider = document.getElementById('vol');
+  const threshVal = document.getElementById('threshVal');
+  const cooldownVal = document.getElementById('cooldownVal');
+  const volVal = document.getElementById('volVal');
+
+  const meters = [document.getElementById('m0'), document.getElementById('m1'), document.getElementById('m2')];
+
+  threshSlider.oninput = () => threshVal.textContent = threshSlider.value;
+  cooldownSlider.oninput = () => cooldownVal.textContent = cooldownSlider.value;
+  volSlider.oninput = () => volVal.textContent = volSlider.value;
+
+  let audioCtx = null;
+  let stream = null;
+  let running = false;
+  let prevFrame = null;
+  let W = 320, H = 240; // internal processing resolution (kept small for speed)
+
+  const vctx = viewCanvas.getContext('2d', { willReadFrequently: true });
+  const octx = overlayCanvas.getContext('2d');
+
+  // Three zones: left = hihat, center = kick, right = snare
+  const zones = [
+    { name: 'hihat', x0: 0.00, x1: 0.33, color: getCSS('--hihat') },
+    { name: 'kick',  x0: 0.33, x1: 0.67, color: getCSS('--kick')  },
+    { name: 'snare', x0: 0.67, x1: 1.00, color: getCSS('--snare') }
+  ];
+
+  const lastHit = [0, 0, 0];
+
+  function getCSS(varName) {
+    return getComputedStyle(document.documentElement).getPropertyValue(varName).trim() || '#fff';
+  }
+
+  function initAudio() {
+    if (!audioCtx) {
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    }
+  }
+
+  // --- Synthesized drum sounds (no audio files needed) ---
+  function playKick() {
+    const t = audioCtx.currentTime;
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(150, t);
+    osc.frequency.exponentialRampToValueAtTime(40, t + 0.15);
+    gain.gain.setValueAtTime(vol(), t);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + 0.35);
+    osc.connect(gain).connect(audioCtx.destination);
+    osc.start(t);
+    osc.stop(t + 0.4);
+  }
+
+  function playSnare() {
+    const t = audioCtx.currentTime;
+    const bufferSize = audioCtx.sampleRate * 0.2;
+    const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < bufferSize; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / bufferSize);
+    const noise = audioCtx.createBufferSource();
+    noise.buffer = buffer;
+    const noiseFilter = audioCtx.createBiquadFilter();
+    noiseFilter.type = 'highpass';
+    noiseFilter.frequency.value = 1000;
+    const noiseGain = audioCtx.createGain();
+    noiseGain.gain.setValueAtTime(vol(), t);
+    noiseGain.gain.exponentialRampToValueAtTime(0.001, t + 0.2);
+    noise.connect(noiseFilter).connect(noiseGain).connect(audioCtx.destination);
+
+    const osc = audioCtx.createOscillator();
+    const oscGain = audioCtx.createGain();
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(180, t);
+    oscGain.gain.setValueAtTime(vol() * 0.6, t);
+    oscGain.gain.exponentialRampToValueAtTime(0.001, t + 0.12);
+    osc.connect(oscGain).connect(audioCtx.destination);
+
+    noise.start(t); noise.stop(t + 0.2);
+    osc.start(t); osc.stop(t + 0.12);
+  }
+
+  function playHihat() {
+    const t = audioCtx.currentTime;
+    const bufferSize = audioCtx.sampleRate * 0.08;
+    const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < bufferSize; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / bufferSize);
+    const noise = audioCtx.createBufferSource();
+    noise.buffer = buffer;
+    const filter = audioCtx.createBiquadFilter();
+    filter.type = 'highpass';
+    filter.frequency.value = 7000;
+    const gain = audioCtx.createGain();
+    gain.gain.setValueAtTime(vol() * 0.5, t);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + 0.08);
+    noise.connect(filter).connect(gain).connect(audioCtx.destination);
+    noise.start(t); noise.stop(t + 0.08);
+  }
+
+  function vol() {
+    return parseInt(volSlider.value, 10) / 100 * 0.9;
+  }
+
+  const soundMap = { hihat: playHihat, kick: playKick, snare: playSnare };
+
+  // --- Camera + motion detection ---
+  async function startCamera() {
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: false });
+      camVideo.srcObject = stream;
+      await camVideo.play();
+      initAudio();
+      viewCanvas.width = W; viewCanvas.height = H;
+      overlayCanvas.width = W; overlayCanvas.height = H;
+      running = true;
+      startBtn.textContent = 'Câmera ativa';
+      startBtn.disabled = true;
+      calBtn.disabled = false;
+      statusEl.textContent = 'Calibrando fundo — fique parado 1 segundo…';
+      prevFrame = null;
+      requestAnimationFrame(loop);
+    } catch (err) {
+      statusEl.textContent = 'Não foi possível acessar a câmera: ' + err.message;
+    }
+  }
+
+  function recalibrate() {
+    prevFrame = null;
+    statusEl.textContent = 'Recalibrando fundo…';
+  }
+
+  function drawZonesOverlay() {
+    octx.clearRect(0, 0, W, H);
+    zones.forEach((z, i) => {
+      octx.strokeStyle = z.color;
+      octx.lineWidth = 1;
+      octx.globalAlpha = 0.5;
+      const x = z.x0 * W;
+      const w = (z.x1 - z.x0) * W;
+      octx.strokeRect(x, 0, w, H);
+      octx.globalAlpha = 1;
+    });
+  }
+
+  function loop() {
+    if (!running) return;
+    vctx.drawImage(camVideo, 0, 0, W, H);
+    const frame = vctx.getImageData(0, 0, W, H);
+
+    if (!prevFrame) {
+      prevFrame = frame;
+      drawZonesOverlay();
+      statusEl.textContent = 'Pronto! Mexa as mãos nas zonas para tocar.';
+      requestAnimationFrame(loop);
+      return;
+    }
+
+    const cur = frame.data;
+    const prev = prevFrame.data;
+    const zoneActivity = [0, 0, 0]; // sum of pixel diff per zone
+    const zonePixels = [0, 0, 0];
+
+    // Sample every 2nd pixel for speed
+    for (let y = 0; y < H; y += 2) {
+      for (let x = 0; x < W; x += 2) {
+        const idx = (y * W + x) * 4;
+        const diff = Math.abs(cur[idx] - prev[idx]) + Math.abs(cur[idx+1] - prev[idx+1]) + Math.abs(cur[idx+2] - prev[idx+2]);
+        const nx = x / W;
+        let zi = nx < 0.33 ? 0 : (nx < 0.67 ? 1 : 2);
+        zoneActivity[zi] += diff;
+        zonePixels[zi]++;
+      }
+    }
+
+    const threshold = parseInt(threshSlider.value, 10);
+    const cooldown = parseInt(cooldownSlider.value, 10);
+    const now = performance.now();
+
+    drawZonesOverlay();
+
+    zones.forEach((z, i) => {
+      const avg = zoneActivity[i] / zonePixels[i]; // average per-pixel change, 0-765ish
+      const pct = Math.min(100, (avg / 120) * 100);
+      meters[i].style.width = pct + '%';
+      meters[i].style.background = avg > threshold ? z.color : '#4a4030';
+
+      if (avg > threshold && (now - lastHit[i]) > cooldown) {
+        lastHit[i] = now;
+        soundMap[z.name]();
+        flashZone(i);
+      }
+    });
+
+    prevFrame = frame;
+    requestAnimationFrame(loop);
+  }
+
+  function flashZone(i) {
+    const z = zones[i];
+    octx.fillStyle = z.color;
+    octx.globalAlpha = 0.35;
+    const x = z.x0 * W;
+    const w = (z.x1 - z.x0) * W;
+    octx.fillRect(x, 0, w, H);
+    octx.globalAlpha = 1;
+  }
+
+  startBtn.addEventListener('click', () => {
+    startBtn.textContent = 'Iniciando…';
+    startCamera();
+  });
+  calBtn.addEventListener('click', recalibrate);
+})();
+</script>
+
+</body>
+</html>
